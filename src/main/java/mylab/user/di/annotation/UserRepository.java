@@ -8,7 +8,7 @@ import org.springframework.stereotype.Repository;
 @Repository
 public class UserRepository {
 
-    @Value("${DB_TYPE:MySQL}")
+    @Value("MySQL")
     private String dbType;
 
     @Autowired(required = false)
