@@ -59,7 +59,16 @@
 			<version>${spring.version}</version>
 			<scope>test</scope>
 		</dependency>
-		
+
+		<!-- JUnit Jupiter Engine (테스트 실행기) -->
+		<dependency>
+   		 <groupId>org.junit.jupiter</groupId>
+  		  <artifactId>junit-jupiter-engine</artifactId>
+  		  <version>5.9.3</version>
+ 		   <scope>test</scope>
+		</dependency>
+
+
   </dependencies>
 
   <build>

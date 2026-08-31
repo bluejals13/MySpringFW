@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+                           http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+    <!-- 1. EmailNotificationService Bean 생성 (생성자 주입: smtpServer, port) -->
+    <bean id="emailNotificationService" class="mylab.notification.di.annot.EmailNotificationService">
+        <constructor-arg value="smtp.gmail.com" />
+        <constructor-arg value="587" />
+    </bean>
+
+    <!-- 2. SmsNotificationService Bean 생성 (생성자 주입: provider) -->
+    <bean id="smsNotificationService" class="mylab.notification.di.annot.SmsNotificationService">
+        <constructor-arg value="SKT" />
+    </bean>
+
+    <!-- 3. NotificationManager Bean 생성 (생성자 주입: 위에서 정의한 두 서비스를 참조 주입) -->
+    <bean id="notificationManager" class="mylab.notification.di.annot.NotificationManager">
+        <constructor-arg ref="emailNotificationService" />
+        <constructor-arg ref="smsNotificationService" />
+    </bean>
+
+</beans>
