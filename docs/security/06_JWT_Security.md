@@ -60,9 +60,19 @@ JWT의 안전은 거의 전부 **secret(서명 키) 관리**에 달려 있다. *
 
 **이 공격은 2단계로 이어진다**: **① 탈취한 토큰을 디코딩해 email 확인**(아직 role 은 모른다) → **② 그 email 로 새 토큰을 위조**해 `/me` 를 호출하면 **role 까지 드러나고, 동시에 관리자 권한도 얻는다.**
 
-**① 탈취한 토큰 디코딩 → email 확인**
+**0) [실습 전제] 탈취한 토큰 준비**
 
-JWT payload 는 암호화가 아니라 base64 이므로, 토큰(`$STOLEN`)만 있으면 누구나 클레임을 읽는다. (가정: 공격자가 XSS·네트워크 스니핑 등 어떤 경로로 로그인된 토큰을 하나 탈취했다.)
+JWT payload 는 암호화가 아니라 base64 이므로, 토큰(`$STOLEN`)만 있으면 누구나 클레임을 읽는다. (가정: 공격자가 XSS·네트워크 스니핑 등 어떤 경로로 로그인된 토큰을 하나 탈취했다.) 이 실습에서는 그 "탈취된 토큰이 손에 있는" 상태를 재현하기 위해, 정상 로그인으로 토큰을 하나 발급받아 `$STOLEN` 에 담는다 — **실제 공격자는 이 비밀번호를 모른 채 탈취 경로로만 토큰을 얻는다.** 이 로그인 단계는 그 탈취를 대신 흉내 낼 뿐이다.
+
+```bash
+B=http://localhost:8080
+STOLEN=$(curl -s "$B/api/userinfos/login" \
+  -H "Content-Type: application/json" \
+  -d '{"email":"admin@aa.com","password":"pwd1"}' \
+  | python -c "import sys,json;print(json.load(sys.stdin)['accessToken'])")
+```
+
+**① 탈취한 토큰 디코딩 → email 확인**
 
 ```bash
 echo "$STOLEN" | cut -d. -f2 | python -c "import sys,base64,json;s=sys.stdin.read().strip();s+='='*(-len(s)%4);print(json.loads(base64.urlsafe_b64decode(s)))"
@@ -75,7 +85,6 @@ echo "$STOLEN" | cut -d. -f2 | python -c "import sys,base64,json;s=sys.stdin.rea
 secret 은 `secret.getBytes()` 로 쓰이므로, HMAC 키 = **그 문자열의 UTF-8(ASCII) 바이트**다. 이 값만 알면 공격자가 **비밀번호 없이** ① 에서 알아낸 email 로 직접 서명할 수 있다.
 
 ```bash
-B=http://localhost:8080
 FT=$(python docs/security/jwt_forge.py admin@aa.com)      # ①에서 알아낸 email 로 위조
 curl -s -w "\n%{http_code}\n" "$B/api/userinfos/me" -H "Authorization: Bearer $FT"
 ```
@@ -177,6 +186,23 @@ private void validateSecret(String secret, boolean allowInsecureSecret) {
     log.warn("약한/기본 secret … 실습 전용으로 계속");                 // 실습: 경고만 남기고 진행
 }
 ```
+
+**`application.properties` 의 기본 secret 이 "약함"으로 판정되는 이유**
+
+이 저장소의 기본 secret(`5367566B...7437`)은 길이가 64바이트로 최소 요구 길이(32바이트)는 충족한다. 그런데도 `weak=true`가 되는 이유는 세 번째 조건, `KNOWN_WEAK_SECRETS.contains(secret.trim())` 때문이다 — 이 값이 정확히 그 목록에 등록돼 있다.
+
+`KNOWN_WEAK_SECRETS`는 secret 을 분석해 유출 여부를 실시간으로 판단하는 로직이 아니라, **소스에 이미 공개 커밋된 이 값·`secret`·`changeit`·`mySecretKey` 같은 흔한 샘플값을 미리 등록해 둔 고정 문자열 목록**이다. `validateSecret()`은 입력값이 이 목록과 문자 그대로 일치하는지만 비교한다. 그래서:
+- 목록에 등록된 값은 길이 조건을 통과해도(64바이트) "약함"으로 판정된다.
+- 반대로 담당자가 새로 생성한 값은 길이·무작위성이 충분해도, 그 값을 이 목록에 등록해 두지 않는 한 유출되더라도 코드는 이를 감지하지 못하고 "강함"으로 판단한다.
+
+실제로 기본값의 **끝자리 1바이트만 바꾼 값**(`...3437` → `...3438`)을 Program argument(`--JWT_SECRET=...`)로 주입해 보면 이 두 특성이 그대로 드러난다.
+
+| 테스트 | 결과 |
+|---|---|
+| `JWT_SECRET`을 기본값 끝자리만 다르게 설정 후 기동 | **정상 기동** — 블록리스트와 문자 그대로 일치하지 않아 "강함"으로 판정됨 |
+| `jwt_forge.py`(기존 기본값으로 서명)로 위조한 토큰으로 `/me` 호출 | **401** — 시그니처 불일치 |
+
+끝자리 1바이트만 다른데도 서명이 통하지 않는 이유는 HMAC-SHA256 의 특성 때문이다. **입력(키)이 1비트만 달라져도 출력(서명)은 완전히 다른 값이 된다**(눈사태 효과). 그래서 "유출된 기본값과 거의 같은" 값으로 바꾸는 것만으로도, 그 기본값으로 서명된 기존 위조 토큰은 즉시 무효가 된다 — 다만 이 값 자체가 블록리스트를 피해 가는 것이지, `openssl rand` 로 생성한 값만큼 무작위하거나 안전한 것은 아니다.
 
 **`application.properties` — 플래그 추가**
 ```properties
