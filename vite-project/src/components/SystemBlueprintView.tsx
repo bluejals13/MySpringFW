@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { departmentApi, studentApi, Department, Student } from '../api/campusApi';
+import { departmentApi, studentApi } from '../api/campusApi';
+import type { Department, Student } from '../types/campus';
 
 export default function SystemBlueprintView() {
   const [departments, setDepartments] = useState<Department[]>([]);

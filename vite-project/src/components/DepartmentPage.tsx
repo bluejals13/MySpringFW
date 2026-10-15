@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from 'react';
-import { departmentApi, Department } from '../api/campusApi';
+import { departmentApi } from '../api/campusApi';
+import type { Department } from '../types/campus';
 
 export default function DepartmentPage() {
   const [departments, setDepartments] = useState<Department[]>([]);
@@ -38,7 +39,7 @@ export default function DepartmentPage() {
       setCode('');
       fetchDepartments();
     } catch (err: any) {
-      setErrorMsg(err.message); // 예: DEPARTMENT_CODE_DUPLICATE 등
+      setErrorMsg(err.message);
     }
   };
 
@@ -51,7 +52,7 @@ export default function DepartmentPage() {
       setSuccessMsg('학과가 삭제되었습니다.');
       fetchDepartments();
     } catch (err: any) {
-      setErrorMsg(err.message); // 예: "Cannot delete department... It has X students"
+      setErrorMsg(err.message);
     }
   };
 
