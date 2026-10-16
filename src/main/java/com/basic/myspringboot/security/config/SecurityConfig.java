@@ -21,6 +21,7 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 
+import lombok.extern.slf4j.Slf4j;
 import java.time.LocalDateTime;
 import java.util.Map;
 
@@ -33,6 +34,7 @@ import java.util.Map;
  *   - UserDetailsService( @Service ) 와 PasswordEncoder 빈이 있으면
  *     Spring Boot 가 DaoAuthenticationProvider 를 자동으로 구성한다.
  */
+@Slf4j
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
@@ -117,15 +119,27 @@ public class SecurityConfig {
 
     /** 토큰이 없거나 잘못된 경우 : 401 */
     private AuthenticationEntryPoint authenticationEntryPoint() {
-        return (request, response, authException) ->
-                writeError(response, HttpServletResponse.SC_UNAUTHORIZED, "인증이 필요합니다 ( 유효한 토큰이 없습니다 )");
+        return (request, response, authException) -> {
+            // 👇 이 부분을 추가해 주세요!
+            log.warn("[Security] 토큰 인증 실패 (401): {} (URI: {})",
+                    authException.getMessage(), request.getRequestURI());
+
+            writeError(response, HttpServletResponse.SC_UNAUTHORIZED, "인증이 필요합니다 ( 유효한 토큰이 없습니다 )");
+        };
     }
 
     /** 로그인은 했지만 권한이 부족한 경우 : 403 */
     private AccessDeniedHandler accessDeniedHandler() {
-        return (request, response, accessDeniedException) ->
-                writeError(response, HttpServletResponse.SC_FORBIDDEN, "접근 권한이 없습니다");
+        return (request, response, accessDeniedException) -> {
+            // 👇 권한 부족 로그도 함께 추가해 주시면 좋습니다.
+            log.warn("[Security] 접근 권한 부족 (403): {} (URI: {})",
+                    accessDeniedException.getMessage(), request.getRequestURI());
+
+            writeError(response, HttpServletResponse.SC_FORBIDDEN, "접근 권한이 없습니다");
+        };
     }
+
+
 
     private void writeError(HttpServletResponse response, int status, String message)
             throws java.io.IOException {
