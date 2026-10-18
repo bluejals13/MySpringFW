@@ -34,6 +34,7 @@ build/
 .vscode/
 
 docs/*.bak*
+docs/security/org_docs
 
 logs/
 
