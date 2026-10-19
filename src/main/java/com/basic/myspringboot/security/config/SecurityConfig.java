@@ -2,8 +2,8 @@ package com.basic.myspringboot.security.config;
 
 import com.basic.myspringboot.security.jwt.JwtAuthenticationFilter;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import jakarta.servlet.http.HttpServletResponse;
-import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
@@ -36,11 +36,20 @@ import java.util.Map;
 @Configuration
 @EnableWebSecurity
 @EnableMethodSecurity
-@RequiredArgsConstructor
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
     private final ObjectMapper objectMapper;
+    private final MeterRegistry meterRegistry; // Micrometer 메트릭 수집용
+
+    // 명시적 생성자 주입
+    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter, 
+                          ObjectMapper objectMapper, 
+                          MeterRegistry meterRegistry) {
+        this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+        this.objectMapper = objectMapper;
+        this.meterRegistry = meterRegistry;
+    }
 
     @Bean
     public PasswordEncoder passwordEncoder() {
@@ -51,22 +60,17 @@ public class SecurityConfig {
     @Order(1)
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         return http
-                //이 필터체인은 REST API(/api/**) 요청만 담당한다.
-                //securityMatcher 로 범위를 한정하지 않으면 '모든 요청'에 매칭되어
-                //뒤의 폼 로그인 체인이 실행되지 않는다.
+                // 이 필터체인은 REST API(/api/**) 요청만 담당한다.
                 .securityMatcher("/api/**")
-                //JWT 를 쓰는 REST API 이므로 CSRF 토큰이 필요 없다
+                // JWT 를 쓰는 REST API 이므로 CSRF 토큰이 필요 없다
                 .csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> auth
-                        //로그인과 회원가입은 토큰 없이 호출할 수 있어야 한다
+                        // 로그인과 회원가입은 토큰 없이 호출할 수 있어야 한다
                         .requestMatchers("/api/userinfos/welcome",
                                 "/api/userinfos/new",
                                 "/api/userinfos/login",
-                                //[2단계] refresh·logout 은 access 토큰이 아니라 refresh 토큰으로 호출한다
                                 "/api/userinfos/refresh",
                                 "/api/userinfos/logout").permitAll()
-                        //[교육용] SQL 인젝션 등 취약점 실습 엔드포인트는 인증 없이 접근 허용
-                        //( 실무에서는 인증 뒤에 두지만, 인증이 인젝션을 막아 주지는 않는다 )
                         .requestMatchers("/api/vuln/**").permitAll()
                         .requestMatchers("/api/**").authenticated()
                         .anyRequest().permitAll())
@@ -82,26 +86,14 @@ public class SecurityConfig {
     @Order(2)
     public SecurityFilterChain formLoginFilterChain(HttpSecurity http)
             throws Exception {
-        //securityMatcher 를 지정하지 않아 '모든 요청'을 담당하는 catch-all 체인이며,
-        //@Order(2) 로 가장 마지막에 게시되어야 한다.(/api/** 는 위 JWT 체인이 먼저 처리)
-        //[CSRF 하드닝] (OWASP #1) 세션+쿠키 기반이므로 CSRF 보호를 켠다(Spring Security 기본값).
-        //  - Thymeleaf 폼(th:action)에는 _csrf 토큰이 자동 삽입되어 정상 동작
-        //  - 공격자 페이지의 위조 요청은 토큰이 없어 403 으로 거부됨
-        //  - JWT 체인은 Authorization 헤더 기반이라 위에서 csrf.disable() 을 유지한다
         return http
-                //.csrf(csrf -> csrf.disable())
                 .authorizeHttpRequests(auth -> {
                     auth.requestMatchers("/login/**").permitAll()
                             .requestMatchers("/users/**").authenticated()
-                            //[보안 설정 오류 하드닝] (OWASP #2) Actuator는 노출 범위(exposure.include)를
-                            //최소화해도, 혹시 나중에 다시 넓어질 경우를 대비해 인증을 한 겹 더 요구한다.
-                            //헬스체크는 로드밸런서 등 외부 도구가 인증 없이 호출해야 하므로 예외로 둔다.
                             .requestMatchers("/actuator/health", "/actuator/info").permitAll()
                             .requestMatchers("/actuator/**").hasAuthority("ROLE_ADMIN")
-                            //로그인 페이지·정적 리소스·루트 등 나머지는 접근 허용
                             .anyRequest().permitAll();
                 })
-                //.formLogin(withDefaults())
                 .formLogin(login -> login
                         .loginPage("/login")
                         .loginProcessingUrl("/login-process")
@@ -125,17 +117,19 @@ public class SecurityConfig {
 
     /** 토큰이 없거나 잘못된 경우 : 401 */
     private AuthenticationEntryPoint authenticationEntryPoint() {
+        meterRegistry.counter("auth.events", "result", "failure").increment();
         return (request, response, authException) ->
-                writeError(response, HttpServletResponse.SC_UNAUTHORIZED, "인증이 필요합니다 ( 유효한 토큰이 없습니다 )");
+                responseError(response, HttpServletResponse.SC_UNAUTHORIZED, "인증이 필요합니다 ( 유효한 토큰이 없습니다 )");
     }
 
     /** 로그인은 했지만 권한이 부족한 경우 : 403 */
     private AccessDeniedHandler accessDeniedHandler() {
         return (request, response, accessDeniedException) ->
-                writeError(response, HttpServletResponse.SC_FORBIDDEN, "접근 권한이 없습니다");
+                responseError(response, HttpServletResponse.SC_FORBIDDEN, "접근 권한이 없습니다");
     }
 
-    private void writeError(HttpServletResponse response, int status, String message)
+    /** 공통 에러 JSON 응답 메서드 */
+    private void responseError(HttpServletResponse response, int status, String message)
             throws java.io.IOException {
         response.setStatus(status);
         response.setContentType(MediaType.APPLICATION_JSON_VALUE);
